@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>私の学習支援システム</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        header { text-align: center; color: white; margin-bottom: 30px; }
+        header h1 { font-size: 2.5em; margin-bottom: 10px; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }
+        header p { font-size: 1.2em; opacity: 0.9; }
+        .main-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 20px; }
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .card h2 { color: #667eea; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 3px solid #667eea; }
+        .input-group { margin-bottom: 15px; }
+        .input-group input, .input-group textarea {
+            width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 1em;
+            transition: border-color 0.3s;
+        }
+        .input-group input:focus, .input-group textarea:focus { outline: none; border-color: #667eea; }
+        button {
+            background: #667eea; color: white; border: none; padding: 12px 24px;
+            border-radius: 8px; font-size: 1em; cursor: pointer; transition: all 0.3s;
+            margin-right: 5px;
+        }
+        button:hover { background: #5568d3; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4); }
+        #response-area {
+            margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;
+            min-height: 100px; display: none;
+        }
+        #response-area.show { display: block; animation: fadeIn 0.5s; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .sidebar-section { margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; }
+        .sidebar-section h3 { color: #667eea; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>🎓 私の学習支援システム</h1>
+        <p>LLM × RAG × オントロジーで作る、自分専用の学習ツール</p>
+    </header>
+
+    <div class="main-grid">
+        <!-- メインエリア -->
+        <div class="card">
+            <h2>💬 質問・学習エリア</h2>
+            <div class="input-group">
+                <input type="text" id="question-input" placeholder="質問を入力してください..."
+                    onkeypress="if(event.key==='Enter') processQuestion()" />
+            </div>
+            <button onclick="processQuestion()">質問する</button>
+            <button onclick="clearResponse()" style="background: #6c757d;">クリア</button>
+            <div id="response-area"></div>
+            <div id="custom-features" style="margin-top: 30px;">
+                <button onclick="experimentPrompts()">💡 プロンプト実験 (コンソール)</button>
+                <button onclick="experimentSearch()">🔍 検索比較 (コンソール)</button>
+                <button onclick="experimentOntology()">📚 前提知識チェーン (コンソール)</button>
+            </div>
+        </div>
+
+        <!-- サイドバー -->
+        <div>
+            <div class="card">
+                <h2>📊 情報パネル</h2>
+                <div class="sidebar-section">
+                    <h3>システム状態</h3>
+                    <div id="system-status">初期化中...</div>
+                </div>
+                <div class="sidebar-section">
+                    <h3>統計情報</h3>
+                    <div id="statistics">データなし</div>
+                </div>
+                <div id="custom-sidebar"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- スクリプト読み込み -->
+<script src="js/config.js"></script>
+<script src="js/llm-client.js"></script>
+<script src="js/vector-search.js"></script>
+<script src="js/ontology.js"></script>
+<script src="js/concept-extractor.js"></script>
+<script src="js/semantic-rag.js"></script>
+
+<script>
+let semanticRAG = null;
+let questionCount = 0;
+
+// --- 初期化 ---
+async function initialize() {
+    console.log("🌐 システム初期化開始...");
+    semanticRAG = new SemanticRAGSystem();
+
+    try {
+        const ontologyRes = await fetch("data/learning-ontology.json");
+        if (!ontologyRes.ok) throw new Error("オントロジーの読み込みに失敗");
+        const ontologyData = await ontologyRes.json();
+
+        const docsRes = await fetch("data/sample-documents.json");
+        if (!docsRes.ok) throw new Error("文書データの読み込みに失敗");
+        const docsJson = await docsRes.json();
+        const documents = docsJson.documents;
+
+        await semanticRAG.initialize(documents, ontologyData);
+
+        window.ragSystem = semanticRAG;
+        console.log("✅ システム初期化完了");
+        updateStatus("システム初期化完了 ✅");
+    } catch (error) {
+        console.error("❌ 初期化エラー:", error);
+        updateStatus("初期化エラー ❌");
+    }
+}
+
+// --- 質問処理 ---
+async function processQuestion() {
+    if (!semanticRAG) {
+        alert("❌ システムが初期化されていません。少し待ってから再度お試しください。");
+        return;
+    }
+
+    const input = document.getElementById('question-input');
+    const question = input.value.trim();
+    if (!question) { alert('質問を入力してください'); return; }
+
+    const responseArea = document.getElementById('response-area');
+    responseArea.className = 'show';
+    responseArea.innerHTML = '<p>🤔 考え中...</p>';
+
+    try {
+        const result = await semanticRAG.semanticQuery(question);
+        const concepts = result.concepts || [];
+        const sources = result.sources || [];
+
+        responseArea.innerHTML = `
+            <h3>💡 回答</h3>
+            <p>${result.answer || "なし"}</p>
+            <h4 style="margin-top: 15px;">🔗 関連概念</h4>
+            <p>${concepts.join(', ') || "なし"}</p>
+            <h4 style="margin-top: 15px;">📚 参考文書</h4>
+            <p>${sources.length}件の文書を参照しました</p>
+        `;
+
+        questionCount++;
+        updateStatistics();
+    } catch (error) {
+        responseArea.innerHTML = `<p style="color: red;">❌ エラー: ${error.message}</p>`;
+    }
+}
+
+// --- 回答クリア ---
+function clearResponse() {
+    document.getElementById('response-area').className = '';
+    document.getElementById('question-input').value = '';
+}
+
+// --- ステータス更新 ---
+function updateStatus(message) {
+    document.getElementById('system-status').innerHTML = `
+        <p style="padding: 10px; background: white; border-radius: 5px;">
+            ${message}
+        </p>
+    `;
+}
+
+// --- 統計更新 ---
+function updateStatistics() {
+    const stats = document.getElementById('statistics');
+    stats.innerHTML = `
+        <p style="padding: 10px; background: white; border-radius: 5px;">
+            質問数: ${questionCount}回<br>
+        </p>
+    `;
+}
+
+// --- 実験用プロンプト関数 ---
+async function experimentPrompts() {
+    if (!semanticRAG) {
+        console.warn("⚠ システム未初期化です");
+        return;
+    }
+
+    const question = "変数とは何ですか？";
+
+    try {
+        const result1 = await semanticRAG.semanticQuery(question);
+        console.log('パターン1:', result1.answer);
+
+        const prompt2 = `あなたは優秀なプログラミング講師です。
+初心者にもわかりやすく、具体例を交えて説明してください。
+質問: ${question}`;
+        const result2 = await semanticRAG.semanticQuery(prompt2);
+        console.log('パターン2:', result2.answer);
+
+        const prompt3 = `以下の質問に、3つのステップで説明してください:
+1. 簡単な定義
+2. 具体例
+3. なぜ重要か
+質問: ${question}`;
+        const result3 = await semanticRAG.semanticQuery(prompt3);
+        console.log('パターン3:', result3.answer);
+
+        const searchResult = await semanticRAG.semanticQuery(question);
+        const prompt4 = `以下の参考情報を使って質問に答えてください:
+${(searchResult.sources || []).map(s => s.text || s.content || '').join('\n\n')}
+
+質問: ${question}`;
+        const result4 = await semanticRAG.semanticQuery(prompt4);
+        console.log('パターン4:', result4.answer);
+
+    } catch (error) {
+        console.error("❌ 実験用プロンプトエラー:", error);
+    }
+}
+
+// --- 実験用検索関数 ---
+async function experimentSearch() {
+    if (!semanticRAG) {
+        console.warn("⚠ システム未初期化です");
+        return;
+    }
+
+    const query = "ループの使い方";
+
+    try {
+        const vectorResults = await semanticRAG.semanticQuery(query, { topK: 3 });
+        console.log('=== ベクトル検索 ===');
+        console.log(vectorResults);
+
+        const semanticResults = await semanticRAG.semanticQuery(query);
+        console.log('=== オントロジー検索 ===');
+        console.log(semanticResults);
+
+        console.log('=== 比較 ===');
+        console.log('ベクトル検索:', vectorResults.sources?.length || 0, '件');
+        console.log('オントロジー検索:', semanticResults.sources?.length || 0, '件');
+        console.log('抽出された概念:', semanticResults.concepts || []);
+    } catch (error) {
+        console.error("❌ 実験用検索エラー:", error);
+    }
+}
+
+// --- 実験用オントロジー関数 ---
+function experimentOntology() {
+    if (!semanticRAG) {
+        console.warn("⚠ システム未初期化です");
+        return;
+    }
+
+    const targetConcept = 'recursion'; // 再帰
+
+    const chain = semanticRAG.ontology.getPrerequisiteChain(targetConcept);
+    console.log('=== 前提知識チェーン ===');
+    console.log('再帰を学ぶために必要な概念:', chain);
+
+    chain.forEach(conceptId => {
+        const concept = semanticRAG.ontology.concepts[conceptId];
+        console.log(`${concept.label} (${concept.level}):`);
+        console.log(`  説明: ${concept.description}`);
+        console.log(`  前提: ${concept.prerequisites}`);
+        console.log(`  関連: ${concept.relatedConcepts}`);
+    });
+
+    const related = semanticRAG.ontology.getRelatedConcepts(targetConcept, 1);
+    console.log('=== 関連概念 ===');
+    console.log(related);
+}
+
+// --- ページ読み込み時に初期化 ---
+window.onload = initialize;
+</script>
+</body>
+</html>
