@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>私の学習支援システム</title>
+
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -33,7 +34,6 @@
         button {
             background: #667eea; color: white; border: none; padding: 12px 24px;
             border-radius: 8px; font-size: 1em; cursor: pointer; transition: all 0.3s;
-            margin-right: 5px;
         }
         button:hover { background: #5568d3; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4); }
         #response-area {
@@ -44,8 +44,25 @@
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .sidebar-section { margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; }
         .sidebar-section h3 { color: #667eea; margin-bottom: 10px; }
+
+        /* ▼ 目標達成アニメーション（追加） */
+        .fade-in {
+            animation: fadeInGoal 0.9s cubic-bezier(.2,.9,.3,1);
+        }
+        @keyframes fadeInGoal {
+            0% { transform: scale(0.85); opacity: 0; box-shadow: 0 0 0 rgba(255,255,255,0); }
+            40% { transform: scale(1.08); opacity: 1; box-shadow: 0 0 28px rgba(255,215,64,0.85); }
+            80% { transform: scale(1.02); box-shadow: 0 0 12px rgba(255,215,64,0.6); }
+            100% { transform: scale(1); box-shadow: 0 0 0 rgba(255,255,255,0); }
+        }
+
+        #goal-progress-container { background:#e0e0e0; border-radius: 8px; overflow:hidden; height: 20px; }
+        #goal-progress-bar { background:#28a745; width:0%; height:100%; transition: width 0.5s; }
+
+        @media (max-width: 800px) { .main-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
+
 <body>
 <div class="container">
     <header>
@@ -64,11 +81,26 @@
             <button onclick="processQuestion()">質問する</button>
             <button onclick="clearResponse()" style="background: #6c757d;">クリア</button>
             <div id="response-area"></div>
+
             <div id="custom-features" style="margin-top: 30px;">
                 <button onclick="experimentPrompts()">💡 プロンプト実験 (コンソール)</button>
                 <button onclick="experimentSearch()">🔍 検索比較 (コンソール)</button>
-                <button onclick="experimentOntology()">📚 前提知識チェーン (コンソール)</button>
+                <button onclick="experimentOntology()">📖 オントロジー実験 (コンソール)</button>
             </div>
+
+            <div class="input-group" style="margin-top:20px;">
+                <label>理解度: <span id="score-display">50</span>%</label>
+                <input type="range" id="score-slider" min="0" max="100" value="50"
+                    oninput="document.getElementById('score-display').innerText=this.value"/>
+            </div>
+
+            <button onclick="saveRecord()" style="background:#28a745; margin-top:10px;">記録する</button>
+            <button onclick="resetHistory()" style="background:#dc3545; margin-top:10px;">履歴をリセット</button>
+
+            <div id="history-area" style="margin-top:20px;"></div>
+
+            <h3>📈 学習進捗</h3>
+            <canvas id="progressChart" width="400" height="200"></canvas>
         </div>
 
         <!-- サイドバー -->
@@ -83,13 +115,33 @@
                     <h3>統計情報</h3>
                     <div id="statistics">データなし</div>
                 </div>
+                <div class="sidebar-section">
+                    <h3>苦手な分野</h3>
+                    <div id="weak-concepts">なし</div>
+                </div>
+
+                <div id="goal-box" class="sidebar-section">
+                    <h3>🎯 学習目標</h3>
+                    <div class="input-group">
+                        <input type="text" id="goal-input" placeholder="今週の目標を入力..." />
+                    </div>
+                    <button onclick="setLearningGoal()" style="background:#ffc107; margin-bottom: 10px;">
+                        目標を設定
+                    </button>
+                    <div id="goal-display" style="margin-top: 10px; font-weight: bold;"></div>
+                    <div id="goal-progress-container" style="margin-top:10px;">
+                        <div id="goal-progress-bar"></div>
+                    </div>
+                    <button onclick="resetGoal()" style="background:#17a2b8; margin-top:10px;">目標をリセット</button>
+                </div>
+
                 <div id="custom-sidebar"></div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- スクリプト読み込み -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="js/config.js"></script>
 <script src="js/llm-client.js"></script>
 <script src="js/vector-search.js"></script>
@@ -98,191 +150,248 @@
 <script src="js/semantic-rag.js"></script>
 
 <script>
-let semanticRAG = null;
-let questionCount = 0;
+class LearningTracker {
+    constructor() {
+        this.history = JSON.parse(localStorage.getItem('learningHistory') || '[]');
+    }
+    addRecord(question, answer, understanding, answerConcepts=[]) {
+        this.history.push({
+            timestamp: new Date().toISOString(),
+            question,
+            answer,
+            understanding,
+            answerConcepts
+        });
+        localStorage.setItem('learningHistory', JSON.stringify(this.history));
+    }
+    getHistory() { return this.history; }
+}
 
-// --- 初期化 ---
-async function initialize() {
+const tracker = new LearningTracker();
+
+function renderHistory() {
+    const area = document.getElementById('history-area');
+    const history = tracker.getHistory();
+    if (history.length === 0) {
+        area.innerHTML = "<p>まだ履歴がありません</p>";
+        return;
+    }
+    area.innerHTML = history
+        .map(r => `
+            <div class="record-card" style="
+                background:white; padding:10px; border-radius:10px; margin-bottom:10px;
+                box-shadow:0 3px 6px rgba(0,0,0,0.1);
+            ">
+                <p><strong>📘 質問:</strong> ${r.question}</p>
+                <p><strong>💡 理解度:</strong> ${r.understanding}%</p>
+                <p><strong>⏰ 日時:</strong> ${new Date(r.timestamp).toLocaleString()}</p>
+                <p><strong>🔗 概念:</strong> ${r.answerConcepts?.join(', ') || 'なし'}</p>
+            </div>
+        `).join('');
+}
+
+let progressChart = null;
+function renderProgressChart() {
+    const history = tracker.getHistory();
+    if (history.length === 0) return;
+    const labels = history.map((r,i)=>`Q${i+1}`);
+    const data = history.map(r=>Number(r.understanding));
+    const ctx = document.getElementById('progressChart').getContext('2d');
+    if(progressChart){
+        progressChart.data.labels = labels;
+        progressChart.data.datasets[0].data = data;
+        progressChart.update();
+    } else {
+        progressChart = new Chart(ctx,{
+            type:'line',
+            data:{
+                labels:labels,
+                datasets:[{
+                    label:'理解度',
+                    data:data,
+                    backgroundColor:'rgba(102,126,234,0.2)',
+                    borderColor:'rgba(102,126,234,1)',
+                    borderWidth:2,
+                    tension:0.3
+                }]
+            },
+            options:{
+                scales:{y:{min:0,max:100}}
+            }
+        });
+    }
+}
+
+function getWeakConcepts() {
+    const history = tracker.getHistory();
+    const conceptScores = {};
+    history.forEach(r=>{
+        const concepts = r.answerConcepts || [];
+        concepts.forEach(c=>{
+            if(!conceptScores[c]) conceptScores[c]=[];
+            conceptScores[c].push(Number(r.understanding));
+        });
+    });
+    const weakConcepts=[];
+    for(const c in conceptScores){
+        const avg=conceptScores[c].reduce((a,b)=>a+b,0)/conceptScores[c].length;
+        if(avg<60) weakConcepts.push({concept:c,avg});
+    }
+    return weakConcepts;
+}
+
+function updateWeakConcepts() {
+    const weakConcepts = getWeakConcepts();
+    const container = document.getElementById('weak-concepts');
+    if(!container) return;
+    const customLabels={
+        "japanese-food":"日本食",
+        "cooking-basics":"料理基礎",
+        "ball-handling":"ボール操作",
+        "coordination":"協調運動"
+    };
+    if(weakConcepts.length===0){
+        container.innerHTML="<p>苦手な分野はありません</p>";
+    } else {
+        container.innerHTML = weakConcepts.map(c=>{
+            const label = semanticRAG?.ontology?.getConcept(c.concept)?.label || customLabels[c.concept] || c.concept;
+            return `${label}（平均 ${c.avg.toFixed(1)}%）`;
+        }).join('<br>');
+    }
+}
+
+/* 学習目標 */
+let currentGoal = localStorage.getItem('learningGoal') || '';
+let goalProgress = Number(localStorage.getItem('goalProgress') || 0);
+
+function setLearningGoal(){
+    const input=document.getElementById('goal-input').value.trim();
+    if(!input) return alert('目標を入力してください！');
+    currentGoal=input; goalProgress=0;
+    localStorage.setItem('learningGoal',currentGoal);
+    localStorage.setItem('goalProgress',goalProgress);
+    updateGoalDisplay();
+}
+
+function updateGoalDisplay(){
+    document.getElementById('goal-display').innerText=currentGoal?`目標: ${currentGoal}`:'';
+    updateGoalProgressBar();
+}
+
+function updateGoalProgressBar(){
+    const bar=document.getElementById('goal-progress-bar');
+    bar.style.width=`${goalProgress}%`;
+    const goalBox=document.getElementById('goal-box');
+    if(goalProgress>=100){
+        goalProgress=100;
+        bar.style.width='100%';
+        localStorage.setItem('goalProgress',goalProgress);
+        goalBox?.classList.remove('fade-in');
+        void goalBox?.offsetWidth;
+        goalBox?.classList.add('fade-in');
+        setTimeout(()=>{alert(`🎉 目標「${currentGoal}」を達成しました！`);},900);
+    }
+}
+
+function updateGoalProgress(understanding){
+    if(!currentGoal) return;
+    if(understanding===undefined) understanding=Number(document.getElementById('score-slider').value);
+    goalProgress+=understanding/5;
+    if(goalProgress>100) goalProgress=100;
+    localStorage.setItem('goalProgress',goalProgress);
+    updateGoalProgressBar();
+}
+
+function resetGoal(){
+    if(!confirm("本当に学習目標と進捗をリセットしますか？")) return;
+    currentGoal=''; goalProgress=0;
+    localStorage.removeItem('learningGoal');
+    localStorage.removeItem('goalProgress');
+    updateGoalDisplay();
+    alert("✅ 学習目標と進捗をリセットしました");
+}
+
+/* saveRecord */
+function saveRecord(){
+    const question=document.getElementById('question-input').value;
+    const answer=document.getElementById('response-area').innerText;
+    const understanding=Number(document.getElementById('score-slider').value);
+    if(!question || !answer){ alert("質問して回答を生成してから記録してください！"); return;}
+    const answerConcepts = lastAnswerConcepts || [];
+    tracker.addRecord(question,answer,understanding,answerConcepts);
+    renderHistory(); renderProgressChart(); updateWeakConcepts();
+    updateGoalProgress(understanding);
+}
+
+/* 履歴リセット */
+function resetHistory(){
+    if(!confirm("本当に履歴をすべて削除しますか？")) return;
+    localStorage.removeItem('learningHistory'); tracker.history=[];
+    renderHistory(); renderProgressChart(); updateWeakConcepts();
+    alert("✅ 履歴をリセットしました");
+}
+
+let semanticRAG=null; let questionCount=0; let lastAnswerConcepts=[];
+
+async function initialize(){
     console.log("🌐 システム初期化開始...");
     semanticRAG = new SemanticRAGSystem();
+    try{
+        const ontologyRes=await fetch("data/learning-ontology.json");
+        if(!ontologyRes.ok) throw new Error("オントロジーの読み込みに失敗");
+        const ontologyData=await ontologyRes.json();
 
-    try {
-        const ontologyRes = await fetch("data/learning-ontology.json");
-        if (!ontologyRes.ok) throw new Error("オントロジーの読み込みに失敗");
-        const ontologyData = await ontologyRes.json();
+        const docsRes=await fetch("data/sample-documents.json");
+        if(!docsRes.ok) throw new Error("文書データの読み込みに失敗");
+        const docsJson=await docsRes.json();
+        const documents=docsJson.documents;
 
-        const docsRes = await fetch("data/sample-documents.json");
-        if (!docsRes.ok) throw new Error("文書データの読み込みに失敗");
-        const docsJson = await docsRes.json();
-        const documents = docsJson.documents;
-
-        await semanticRAG.initialize(documents, ontologyData);
+        await semanticRAG.initialize(documents,ontologyData);
 
         window.ragSystem = semanticRAG;
-        console.log("✅ システム初期化完了");
         updateStatus("システム初期化完了 ✅");
-    } catch (error) {
-        console.error("❌ 初期化エラー:", error);
+    }catch(error){
+        console.error(error);
         updateStatus("初期化エラー ❌");
     }
 }
 
-// --- 質問処理 ---
-async function processQuestion() {
-    if (!semanticRAG) {
-        alert("❌ システムが初期化されていません。少し待ってから再度お試しください。");
-        return;
-    }
-
-    const input = document.getElementById('question-input');
-    const question = input.value.trim();
-    if (!question) { alert('質問を入力してください'); return; }
-
-    const responseArea = document.getElementById('response-area');
-    responseArea.className = 'show';
-    responseArea.innerHTML = '<p>🤔 考え中...</p>';
-
-    try {
-        const result = await semanticRAG.semanticQuery(question);
-        const concepts = result.concepts || [];
-        const sources = result.sources || [];
-
-        responseArea.innerHTML = `
+async function processQuestion(){
+    if(!semanticRAG){alert("❌ システムが初期化されていません。"); return;}
+    const input=document.getElementById('question-input');
+    const question=input.value.trim();
+    if(!question){alert('質問を入力してください'); return;}
+    const responseArea=document.getElementById('response-area');
+    responseArea.className='show';
+    responseArea.innerHTML='<p>🤔 考え中...</p>';
+    try{
+        const result=await semanticRAG.semanticQuery(question);
+        const concepts=result.conceptsUsed||[];
+        const sources=result.sources||[];
+        lastAnswerConcepts=concepts;
+        responseArea.innerHTML=`
             <h3>💡 回答</h3>
             <p>${result.answer || "なし"}</p>
-            <h4 style="margin-top: 15px;">🔗 関連概念</h4>
+            <h4 style="margin-top:15px;">🔗 関連概念</h4>
             <p>${concepts.join(', ') || "なし"}</p>
-            <h4 style="margin-top: 15px;">📚 参考文書</h4>
+            <h4 style="margin-top:15px;">📚 参考文書</h4>
             <p>${sources.length}件の文書を参照しました</p>
         `;
-
         questionCount++;
         updateStatistics();
-    } catch (error) {
-        responseArea.innerHTML = `<p style="color: red;">❌ エラー: ${error.message}</p>`;
+    }catch(error){
+        responseArea.innerHTML=`<p style="color:red;">❌ エラー: ${error.message}</p>`;
     }
 }
 
-// --- 回答クリア ---
-function clearResponse() {
-    document.getElementById('response-area').className = '';
-    document.getElementById('question-input').value = '';
-}
+function clearResponse(){document.getElementById('response-area').className='';document.getElementById('question-input').value='';}
+function updateStatus(message){document.getElementById('system-status').innerHTML=`<p style="padding:10px;background:white;border-radius:5px;">${message}</p>`;}
+function updateStatistics(){document.getElementById('statistics').innerHTML=`<p style="padding:10px;background:white;border-radius:5px;">質問数: ${questionCount}回<br></p>`;}
 
-// --- ステータス更新 ---
-function updateStatus(message) {
-    document.getElementById('system-status').innerHTML = `
-        <p style="padding: 10px; background: white; border-radius: 5px;">
-            ${message}
-        </p>
-    `;
-}
-
-// --- 統計更新 ---
-function updateStatistics() {
-    const stats = document.getElementById('statistics');
-    stats.innerHTML = `
-        <p style="padding: 10px; background: white; border-radius: 5px;">
-            質問数: ${questionCount}回<br>
-        </p>
-    `;
-}
-
-// --- 実験用プロンプト関数 ---
-async function experimentPrompts() {
-    if (!semanticRAG) {
-        console.warn("⚠ システム未初期化です");
-        return;
-    }
-
-    const question = "変数とは何ですか？";
-
-    try {
-        const result1 = await semanticRAG.semanticQuery(question);
-        console.log('パターン1:', result1.answer);
-
-        const prompt2 = `あなたは優秀なプログラミング講師です。
-初心者にもわかりやすく、具体例を交えて説明してください。
-質問: ${question}`;
-        const result2 = await semanticRAG.semanticQuery(prompt2);
-        console.log('パターン2:', result2.answer);
-
-        const prompt3 = `以下の質問に、3つのステップで説明してください:
-1. 簡単な定義
-2. 具体例
-3. なぜ重要か
-質問: ${question}`;
-        const result3 = await semanticRAG.semanticQuery(prompt3);
-        console.log('パターン3:', result3.answer);
-
-        const searchResult = await semanticRAG.semanticQuery(question);
-        const prompt4 = `以下の参考情報を使って質問に答えてください:
-${(searchResult.sources || []).map(s => s.text || s.content || '').join('\n\n')}
-
-質問: ${question}`;
-        const result4 = await semanticRAG.semanticQuery(prompt4);
-        console.log('パターン4:', result4.answer);
-
-    } catch (error) {
-        console.error("❌ 実験用プロンプトエラー:", error);
-    }
-}
-
-// --- 実験用検索関数 ---
-async function experimentSearch() {
-    if (!semanticRAG) {
-        console.warn("⚠ システム未初期化です");
-        return;
-    }
-
-    const query = "ループの使い方";
-
-    try {
-        const vectorResults = await semanticRAG.semanticQuery(query, { topK: 3 });
-        console.log('=== ベクトル検索 ===');
-        console.log(vectorResults);
-
-        const semanticResults = await semanticRAG.semanticQuery(query);
-        console.log('=== オントロジー検索 ===');
-        console.log(semanticResults);
-
-        console.log('=== 比較 ===');
-        console.log('ベクトル検索:', vectorResults.sources?.length || 0, '件');
-        console.log('オントロジー検索:', semanticResults.sources?.length || 0, '件');
-        console.log('抽出された概念:', semanticResults.concepts || []);
-    } catch (error) {
-        console.error("❌ 実験用検索エラー:", error);
-    }
-}
-
-// --- 実験用オントロジー関数 ---
-function experimentOntology() {
-    if (!semanticRAG) {
-        console.warn("⚠ システム未初期化です");
-        return;
-    }
-
-    const targetConcept = 'recursion'; // 再帰
-
-    const chain = semanticRAG.ontology.getPrerequisiteChain(targetConcept);
-    console.log('=== 前提知識チェーン ===');
-    console.log('再帰を学ぶために必要な概念:', chain);
-
-    chain.forEach(conceptId => {
-        const concept = semanticRAG.ontology.concepts[conceptId];
-        console.log(`${concept.label} (${concept.level}):`);
-        console.log(`  説明: ${concept.description}`);
-        console.log(`  前提: ${concept.prerequisites}`);
-        console.log(`  関連: ${concept.relatedConcepts}`);
-    });
-
-    const related = semanticRAG.ontology.getRelatedConcepts(targetConcept, 1);
-    console.log('=== 関連概念 ===');
-    console.log(related);
-}
-
-// --- ページ読み込み時に初期化 ---
-window.onload = initialize;
+window.onload=()=>{
+    initialize(); renderHistory(); renderProgressChart(); updateWeakConcepts(); updateGoalDisplay();
+};
 </script>
+
 </body>
 </html>

@@ -24,6 +24,14 @@
       "relatedConcepts": ["procedures", "methods", "abstraction"],
       "description": "再利用可能なコードブロック"
     },
+    "recursion": {
+      "label": "再帰",
+      "level": "intermediate",
+      "subConcepts": [],
+      "prerequisites": ["functions"],
+      "relatedConcepts": ["algorithms"],
+      "description": "関数が自分自身を呼び出す仕組み"
+    },
     "data-structures": {
       "label": "データ構造",
       "level": "intermediate",
@@ -41,45 +49,45 @@
       "description": "問題解決の手順"
     },
     "object-oriented": {
-    "label": "オブジェクト指向",
-    "level": "intermediate",
-    "subConcepts": ["classes", "inheritance", "polymorphism"],
-    "prerequisites": ["functions", "data-structures"],
-    "relatedConcepts": ["abstraction", "encapsulation"],
-    "description": "オブジェクトを中心としたプログラミング手法"
+      "label": "オブジェクト指向",
+      "level": "intermediate",
+      "subConcepts": ["classes", "inheritance", "polymorphism"],
+      "prerequisites": ["functions", "data-structures"],
+      "relatedConcepts": ["abstraction", "encapsulation"],
+      "description": "オブジェクトを中心としたプログラミング手法"
     },
-  "shooting": {
-  "label": "シュート",
-  "level": "beginner",
-  "subConcepts": ["layup", "jump-shot", "free-throw"],
-  "prerequisites": ["dribbling", "ball-handling"],
-  "relatedConcepts": ["offense"],
-  "description": "得点のためにボールをリングに入れる動作"
-},
-"dribbling": {
-  "label": "ドリブル",
-  "level": "beginner",
-  "subConcepts": ["crossover","behind-the-back", "between-the-legs"],
-  "prerequisites": ["ball-handling", "coordination"],
-  "relatedConcepts": ["ball-handling"],
-  "description": "ボールをつきながら移動する技術"
-},
-"ramen": {
-  "label": "ラーメン",
-  "level": "beginner",
-  "subConcepts": ["noodles", "broth", "toppings"],
-  "prerequisites": ["japanese-food", "cooking-basics"],
-  "relatedConcepts": ["japanese-food"],
-  "description": "スープに麺と具材を合わせた料理"
-},
-"broth": {
-  "label": "スープ",
-  "level": "intermediate",
-  "subConcepts": ["soy-sauce", "miso", "tonkotsu"],
-  "prerequisites": ["seasoning", "cooking-basics"],
-  "relatedConcepts": ["seasoning"],
-  "description": "ラーメンの味を決める基盤の液体"
-}
+    "shooting": {
+      "label": "シュート",
+      "level": "beginner",
+      "subConcepts": ["layup", "jump-shot", "free-throw"],
+      "prerequisites": ["dribbling", "ball-handling"],
+      "relatedConcepts": ["offense"],
+      "description": "得点のためにボールをリングに入れる動作"
+    },
+    "dribbling": {
+      "label": "ドリブル",
+      "level": "beginner",
+      "subConcepts": ["crossover","behind-the-back", "between-the-legs"],
+      "prerequisites": ["ball-handling", "coordination"],
+      "relatedConcepts": ["ball-handling"],
+      "description": "ボールをつきながら移動する技術"
+    },
+    "ramen": {
+      "label": "ラーメン",
+      "level": "beginner",
+      "subConcepts": ["noodles", "broth", "toppings"],
+      "prerequisites": ["japanese-food", "cooking-basics"],
+      "relatedConcepts": ["japanese-food"],
+      "description": "スープに麺と具材を合わせた料理"
+    },
+    "broth": {
+      "label": "スープ",
+      "level": "intermediate",
+      "subConcepts": ["soy-sauce", "miso", "tonkotsu"],
+      "prerequisites": ["seasoning", "cooking-basics"],
+      "relatedConcepts": ["seasoning"],
+      "description": "ラーメンの味を決める基盤の液体"
+    }
   },
   "relations": [
     {
@@ -112,17 +120,17 @@
       "type": "prerequisite",
       "strength": 0.8
     },
-   {
-  "from": "dribbling",
-  "to": "shooting",
-  "type": "prerequisite",
-  "strength": 0.6
-},
-{
-  "from": "broth",
-  "to": "ramen",
-  "type": "part-of",
-  "strength": 1.0
-}
+    {
+      "from": "dribbling",
+      "to": "shooting",
+      "type": "prerequisite",
+      "strength": 0.6
+    },
+    {
+      "from": "broth",
+      "to": "ramen",
+      "type": "part-of",
+      "strength": 1.0
+    }
   ]
 }

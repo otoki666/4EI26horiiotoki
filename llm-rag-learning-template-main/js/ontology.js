@@ -63,24 +63,16 @@ class LearningOntology {
     while (queue.length > 0) {
       const { concept, depth } = queue.shift();
 
-      // 訪問済みまたは深さ超過ならスキップ
-      if (visited.has(concept) || depth > maxDepth) {
-        continue;
-      }
+      if (visited.has(concept) || depth > maxDepth) continue;
 
       visited.add(concept);
 
-      // 最初の概念以外は結果に追加
-      if (depth > 0) {
-        related.add(concept);
-      }
+      if (depth > 0) related.add(concept);
 
-      // 直接関係のある概念を探索
       for (const [key, relation] of this.relations) {
         if (relation.from === concept && !visited.has(relation.to)) {
           queue.push({ concept: relation.to, depth: depth + 1 });
         }
-        // 双方向で探索（related関係など）
         if (relation.to === concept && !visited.has(relation.from)) {
           queue.push({ concept: relation.from, depth: depth + 1 });
         }
@@ -90,7 +82,7 @@ class LearningOntology {
     return Array.from(related);
   }
 
-  // 前提知識チェーン（prerequisite関係をたどる）
+  // 前提知識チェーン（prerequisite関係を再帰的にたどる）
   getPrerequisiteChain(conceptId) {
     const chain = [];
     const concept = this.concepts.get(conceptId);
@@ -98,13 +90,41 @@ class LearningOntology {
     if (concept && concept.prerequisites) {
       for (const prereq of concept.prerequisites) {
         chain.push(prereq);
-        // 再帰的に前提知識を取得
         chain.push(...this.getPrerequisiteChain(prereq));
       }
     }
 
-    // 重複を除去
     return [...new Set(chain)];
+  }
+
+  // --- 新規追加: 関連概念を取得 ---
+  getRelatedConcepts(conceptId, maxDepth = 1) {
+    const concept = this.concepts.get(conceptId);
+    if (!concept) return [];
+
+    // 関連概念は relations の type が 'related' または concept の relatedConcepts に基づく
+    const relatedSet = new Set();
+
+    // relatedConcepts 配列から直接追加
+    if (concept.relatedConcepts && concept.relatedConcepts.length > 0) {
+      concept.relatedConcepts.forEach(c => relatedSet.add(c));
+    }
+
+    // relations から 'related' タイプを追加
+    for (const [key, rel] of this.relations) {
+      if (rel.type === 'related') {
+        if (rel.from === conceptId) relatedSet.add(rel.to);
+        if (rel.to === conceptId) relatedSet.add(rel.from);
+      }
+    }
+
+    // maxDepth > 1 なら幅優先探索でさらに関連を追加
+    if (maxDepth > 1) {
+      const bfsRelated = this.findRelatedConcepts(conceptId, maxDepth);
+      bfsRelated.forEach(c => relatedSet.add(c));
+    }
+
+    return Array.from(relatedSet);
   }
 
   // デバッグ用：オントロジーの状態を表示
@@ -124,4 +144,3 @@ class LearningOntology {
     }
   }
 }
-
